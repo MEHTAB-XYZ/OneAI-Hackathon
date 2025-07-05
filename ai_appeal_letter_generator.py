@@ -4,8 +4,8 @@ import PyPDF2
 import io
 import numpy as np
 import os
-from dotenv import load_dotenv
 import google.generativeai as genai
+from dotenv import load_dotenv, find_dotenv
 
 # --------------------- UI HEADER ---------------------
 st.set_page_config(page_title="AI Appeal Letter Generator", layout="centered")
@@ -60,8 +60,9 @@ def get_denial_reason(denial_text):
     Returns a concise reason like 'Not Medically Necessary'.
     """
     try:
-        load_dotenv()
-        api_key = os.getenv("GOOGLE_API_KEY")
+        # Ensure .env is loaded only once and early in the app
+        load_dotenv(find_dotenv(), override=True)
+        api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             return "Google API key not found in environment."
         genai.configure(api_key=api_key)
@@ -89,8 +90,8 @@ def get_claim_summary(claim_text):
     Summarize the claim/doctor letter. Extract diagnosis, requested treatment, and justification.
     """
     try:
-        load_dotenv()
-        api_key = os.getenv("GOOGLE_API_KEY")
+        load_dotenv(find_dotenv(), override=True)
+        api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             return "Google API key not found in environment."
         genai.configure(api_key=api_key)
@@ -115,8 +116,8 @@ def draft_appeal_letter(denial_reason, claim_summary):
     Use Google Generative AI to generate a professional appeal letter.
     """
     try:
-        load_dotenv()
-        api_key = os.getenv("GOOGLE_API_KEY")
+        load_dotenv(find_dotenv(), override=True)
+        api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             return "Google API key not found in environment."
         genai.configure(api_key=api_key)
