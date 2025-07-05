@@ -1,4 +1,7 @@
 import json
+import tempfile
+import webbrowser
+from docx import Document
 # ------------------ AI FUNCTIONS ---------------------
 def extract_patient_info(denial_text):
     """
@@ -46,7 +49,7 @@ Upload your **insurance denial letter** and the **doctor’s claim letter** or m
 The AI will extract the text and generate a **professional appeal letter** in seconds.
 """)
 
-# ------------------ OCR LOADER -----------------------
+# ------------------ OCR LOADER ----------------------w-
 @st.cache_resource
 def load_ocr_model():
     """Load and cache the EasyOCR reader."""
@@ -142,9 +145,41 @@ def get_claim_summary(claim_text):
     except Exception as e:
         return f"Error extracting claim summary: {e}"
 
-def draft_appeal_letter(denial_reason, claim_summary):
+def extract_insurance_details(denial_text):
     """
-    Use Google Generative AI to generate a professional appeal letter.
+    Extract insurance company name, address, policy number, and claim number from the denial letter using Gemini.
+    Returns a dict with keys: 'Insurance Company Name', 'Insurance Company Address', 'Policy Number', 'Claim Number'.
+    """
+    try:
+        load_dotenv(find_dotenv(), override=True)
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            return {"Insurance Company Name": "", "Insurance Company Address": "", "Policy Number": "", "Claim Number": ""}
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        prompt = (
+            "Extract the insurance company name, address, policy number, and claim number from the following insurance denial letter text. "
+            'Return a JSON object with keys "Insurance Company Name", "Insurance Company Address", "Policy Number", and "Claim Number". '
+            "If any information is missing, leave the value empty. "
+            f"Text: {denial_text}"
+        )
+        response = model.generate_content(prompt)
+        try:
+            data = json.loads(response.text)
+            return {
+                "Insurance Company Name": data.get("Insurance Company Name", ""),
+                "Insurance Company Address": data.get("Insurance Company Address", ""),
+                "Policy Number": data.get("Policy Number", ""),
+                "Claim Number": data.get("Claim Number", "")
+            }
+        except Exception:
+            return {"Insurance Company Name": "", "Insurance Company Address": "", "Policy Number": "", "Claim Number": ""}
+    except Exception:
+        return {"Insurance Company Name": "", "Insurance Company Address": "", "Policy Number": "", "Claim Number": ""}
+
+def draft_appeal_letter(denial_reason, claim_summary, insurance_details, patient_info):
+    """
+    Use Google Generative AI to generate a professional, finished, ready-to-send appeal letter with all details filled in.
     """
     try:
         load_dotenv(find_dotenv(), override=True)
@@ -155,11 +190,19 @@ def draft_appeal_letter(denial_reason, claim_summary):
         model = genai.GenerativeModel('gemini-2.0-flash')
 
         prompt = (
-            "You are an expert medical appeal writer. Draft a formal appeal letter to an insurance company.\n"
-            "Use the provided denial reason and claim summary.\n\n"
+            "You are an expert medical appeal writer. Draft a complete, formal, and ready-to-send appeal letter to an insurance company.\n"
+            "Use all the provided information below. The letter should be fully finished, professional, and require no further editing.\n"
+            f"Insurance Company Name: {insurance_details.get('Insurance Company Name', '')}\n"
+            f"Insurance Company Address: {insurance_details.get('Insurance Company Address', '')}\n"
+            f"Policy Number: {insurance_details.get('Policy Number', '')}\n"
+            f"Claim Number: {insurance_details.get('Claim Number', '')}\n"
+            f"Patient Name: {patient_info.get('Patient Name', '')}\n"
+            f"Member ID: {patient_info.get('Member ID', '')}\n"
             f"Denial Reason: {denial_reason}\n"
-            f"Claim Summary: {claim_summary}\n\n"
-            "Make it sound professional, persuasive, and medically justified."
+            f"Claim Summary: {claim_summary}\n"
+            "Do not include any placeholders or instructions to add more details.\n"
+            "The letter should be addressed to the insurance company, reference the denial, and clearly and persuasively argue for approval based on the claim summary.\n"
+            "Close with a professional sign-off."
         )
 
         response = model.generate_content(prompt)
@@ -176,13 +219,31 @@ original_claim = st.file_uploader('📄 Upload the **Doctor’s Letter / Claim D
 denial_text = ""
 claim_text = ""
 
-
-# --- After denial letter upload, extract patient info and denial reason ---
-if insurance_denial:
+# --- Only extract details after both documents are uploaded ---
+if insurance_denial and original_claim:
     denial_text = extract_text_from_file(insurance_denial)
-    with st.spinner("Extracting patient info and denial reason..."):
+    claim_text = extract_text_from_file(original_claim)
+    with st.spinner("Extracting all details from denial and claim letters..."):
         patient_info = extract_patient_info(denial_text)
         denial_info = get_denial_reason(denial_text)
+        insurance_details = extract_insurance_details(denial_text)
+        # Use AI to extract a concise, plain-language explanation from the denial letter
+        try:
+            load_dotenv(find_dotenv(), override=True)
+            api_key = os.environ.get("GOOGLE_API_KEY")
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            explanation_prompt = (
+                "Given the following insurance denial letter and claim letter, provide a short, plain-language summary (1-2 sentences) explaining why the claim was denied. Do not quote the letter, just summarize the main reason in simple terms.\n"
+                f"Denial Reason: {denial_info}\n"
+                f"Denial Letter: {denial_text}\n"
+                f"Claim Letter: {claim_text}\n"
+                "Explanation:"
+            )
+            explanation_response = model.generate_content(explanation_prompt)
+            denial_explanation = explanation_response.text.strip()
+        except Exception:
+            denial_explanation = "(Could not extract simple explanation.)"
     # Display extracted info section
     #st.markdown("#### 🧑‍⚕️ Extracted Patient & Denial Info")
     #col1, col2, col3 = st.columns(3)
@@ -212,22 +273,46 @@ if insurance_denial:
 |--------|-----------|
 """ + "\n".join(table_rows))
 
+    # Denial reason explanation and overcoming statement
+    st.markdown("#### ℹ️ Denial Reason Explanation")
+    if denial_info and denial_info != "-":
+        st.write(f"**Explanation:** {denial_explanation}")
+        st.info("The appeal letter will address this reason and work on overcoming it with supporting evidence and arguments.")
+    else:
+        st.write("No specific denial reason was extracted.")
+
     with st.expander("📑 Extracted Denial Letter Text"):
         st.text_area("Denial Letter", denial_text, height=200)
-
-if original_claim:
-    claim_text = extract_text_from_file(original_claim)
     with st.expander("📑 Extracted Claim Letter Text"):
         st.text_area("Claim Letter", claim_text, height=200)
 
-# -------------------- GENERATE LETTER ---------------------
-if insurance_denial and original_claim:
     if st.button("🚀 Generate Appeal Letter"):
         with st.spinner("AI is drafting your appeal letter..."):
-            denial_reason = get_denial_reason(denial_text)
-            claim_summary = get_claim_summary(claim_text)
-            final_letter = draft_appeal_letter(denial_reason, claim_summary)
+            # Use the extracted details for a fully filled letter
+            final_letter = draft_appeal_letter(
+                denial_info,
+                get_claim_summary(claim_text),
+                insurance_details,
+                patient_info
+            )
 
         st.success("✅ Appeal letter generated successfully!")
         st.subheader("📬 Your Generated Appeal Letter:")
         st.markdown(final_letter)
+
+        # Generate .docx file
+        doc = Document()
+        for para in final_letter.split('\n'):
+            doc.add_paragraph(para)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmpfile:
+            doc.save(tmpfile.name)
+            docx_path = tmpfile.name
+        with open(docx_path, "rb") as f:
+            st.download_button(
+                label="📥 Download Appeal Letter as .docx",
+                data=f,
+                file_name="appeal_letter.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+        # Open .docx in new tab (will prompt download in most browsers, but user can open in Word/Google Docs)
+        webbrowser.open_new_tab(f"file://{docx_path}")
