@@ -56,60 +56,100 @@ def extract_text_from_file(uploaded_file):
 # ------------------ AI FUNCTIONS ---------------------
 def get_denial_reason(denial_text):
     """
-    Extract the primary reason for denial using Google Generative AI.
-    Returns a concise reason like 'Not Medically Necessary'.
+    Extracts structured information from a denial letter using Gemini.
+    Returns a dictionary with keys: reason, quote, treatment, policy_clause. If error, returns {'error': ...}
     """
     try:
-        # Ensure .env is loaded only once and early in the app
         load_dotenv(find_dotenv(), override=True)
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
-            return "Google API key not found in environment."
+            return {"error": "Google API key not found in environment."}
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.0-flash')
 
         prompt = (
-            "You are a medical insurance analyst. Your task is to extract the primary reason for denial from the following insurance letter.\n\n"
-            "Only return a short phrase such as:\n"
-            "- Not Medically Necessary\n"
-            "- Experimental Treatment\n"
-            "- Coverage Exclusion\n"
-            "- Incomplete Documentation\n\n"
+            "You are a claims expert reviewing an insurance denial letter. Identify the following:\n"
+            "1. Primary reason for denial (e.g., Not Medically Necessary, Experimental Treatment)\n"
+            "2. Specific phrase or sentence from the denial letter that explains the reason\n"
+            "3. Mentioned procedure/treatment or diagnosis being denied\n"
+            "4. Any referenced insurance policy clause or rule (if present)\n\n"
             "Text:\n"
             f"{denial_text}\n\n"
-            "Denial Reason:"
+            "Output format:\nReason:\nQuote:\nTreatment:\nPolicy Clause:"
         )
 
         response = model.generate_content(prompt)
-        return response.text.strip()
+        output = response.text.strip()
+
+        # Parse the output into fields
+        fields = {"reason": "", "quote": "", "treatment": "", "policy_clause": ""}
+        for line in output.splitlines():
+            if line.strip().lower().startswith("reason:"):
+                fields["reason"] = line.split(":", 1)[-1].strip()
+            elif line.strip().lower().startswith("quote:"):
+                fields["quote"] = line.split(":", 1)[-1].strip()
+            elif line.strip().lower().startswith("treatment:"):
+                fields["treatment"] = line.split(":", 1)[-1].strip()
+            elif line.strip().lower().startswith("policy clause:"):
+                fields["policy_clause"] = line.split(":", 1)[-1].strip()
+        return fields
     except Exception as e:
-        return f"Error extracting denial reason: {e}"
+        return {"error": f"Error extracting denial info: {e}"}
 
 def get_claim_summary(claim_text):
     """
-    Summarize the claim/doctor letter. Extract diagnosis, requested treatment, and justification.
+    Extracts a deep structured summary from a claim letter using Gemini.
+    Returns a dictionary with keys: diagnosis, treatment, justification, symptoms, functional_impact, urgency. If error, returns {'error': ...}
     """
     try:
         load_dotenv(find_dotenv(), override=True)
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
-            return "Google API key not found in environment."
+            return {"error": "Google API key not found in environment."}
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.0-flash')
 
         prompt = (
-            "You are a medical assistant AI. Read the claim letter below and summarize it into 3 parts:\n"
-            "1. Patient diagnosis\n"
-            "2. Requested treatment\n"
-            "3. Justification for the treatment\n\n"
+            "You are a medical assistant reviewing a claim letter. Extract the following structured information:\n"
+            "1. Diagnosis\n"
+            "2. Treatment requested\n"
+            "3. Medical justification for treatment\n"
+            "4. Key symptoms experienced by the patient\n"
+            "5. How the condition affects the patient’s daily functioning\n"
+            "6. Urgency or time sensitivity of the treatment\n\n"
+            "Text:\n"
             f"{claim_text}\n\n"
-            "Summary:"
+            "Respond with the following format:\nDiagnosis:\nTreatment:\nJustification:\nSymptoms:\nFunctional Impact:\nUrgency:"
         )
 
         response = model.generate_content(prompt)
-        return response.text.strip()
+        output = response.text.strip()
+
+        # Parse the output into fields
+        fields = {
+            "diagnosis": "",
+            "treatment": "",
+            "justification": "",
+            "symptoms": "",
+            "functional_impact": "",
+            "urgency": ""
+        }
+        for line in output.splitlines():
+            if line.strip().lower().startswith("diagnosis:"):
+                fields["diagnosis"] = line.split(":", 1)[-1].strip()
+            elif line.strip().lower().startswith("treatment:"):
+                fields["treatment"] = line.split(":", 1)[-1].strip()
+            elif line.strip().lower().startswith("justification:"):
+                fields["justification"] = line.split(":", 1)[-1].strip()
+            elif line.strip().lower().startswith("symptoms:"):
+                fields["symptoms"] = line.split(":", 1)[-1].strip()
+            elif line.strip().lower().startswith("functional impact:"):
+                fields["functional_impact"] = line.split(":", 1)[-1].strip()
+            elif line.strip().lower().startswith("urgency:"):
+                fields["urgency"] = line.split(":", 1)[-1].strip()
+        return fields
     except Exception as e:
-        return f"Error extracting claim summary: {e}"
+        return {"error": f"Error extracting claim summary: {e}"}
 
 def draft_appeal_letter(denial_reason, claim_summary):
     """
@@ -159,9 +199,36 @@ if original_claim:
 if insurance_denial and original_claim:
     if st.button("🚀 Generate Appeal Letter"):
         with st.spinner("AI is drafting your appeal letter..."):
-            denial_reason = get_denial_reason(denial_text)
-            claim_summary = get_claim_summary(claim_text)
-            final_letter = draft_appeal_letter(denial_reason, claim_summary)
+            # Extract denial info
+            denial_info = get_denial_reason(denial_text)
+            claim_info = get_claim_summary(claim_text)
+            # For draft_appeal_letter, use denial_info['reason'] if available, else pass blank
+            denial_reason_for_letter = denial_info.get('reason', '') if isinstance(denial_info, dict) else ''
+            # For draft_appeal_letter, use claim_info['justification'] if available, else pass blank (or pass the whole dict as string)
+            claim_summary_for_letter = claim_info.get('justification', '') if isinstance(claim_info, dict) else ''
+            final_letter = draft_appeal_letter(denial_reason_for_letter, claim_summary_for_letter)
+
+        # Show denial info
+        if "error" in denial_info:
+            st.error(f"❌ Error extracting denial info: {denial_info['error']}")
+        else:
+            st.subheader("🔍 AI-Extracted Denial Insights")
+            st.markdown(f"**• Reason:** {denial_info.get('reason', 'N/A')}")
+            st.markdown(f"**• Quote:** {denial_info.get('quote', 'N/A')}")
+            st.markdown(f"**• Treatment:** {denial_info.get('treatment', 'N/A')}")
+            st.markdown(f"**• Policy Clause:** {denial_info.get('policy_clause', 'N/A')}")
+
+        # Show claim info
+        if "error" in claim_info:
+            st.error(f"❌ Error extracting claim summary: {claim_info['error']}")
+        else:
+            st.subheader("📋 AI-Extracted Claim Summary")
+            st.markdown(f"**• Diagnosis:** {claim_info.get('diagnosis', 'N/A')}")
+            st.markdown(f"**• Treatment:** {claim_info.get('treatment', 'N/A')}")
+            st.markdown(f"**• Justification:** {claim_info.get('justification', 'N/A')}")
+            st.markdown(f"**• Symptoms:** {claim_info.get('symptoms', 'N/A')}")
+            st.markdown(f"**• Functional Impact:** {claim_info.get('functional_impact', 'N/A')}")
+            st.markdown(f"**• Urgency:** {claim_info.get('urgency', 'N/A')}")
 
         st.success("✅ Appeal letter generated successfully!")
         st.subheader("📬 Your Generated Appeal Letter:")
