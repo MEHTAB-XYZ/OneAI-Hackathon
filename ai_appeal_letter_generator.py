@@ -184,11 +184,11 @@ if insurance_denial:
         patient_info = extract_patient_info(denial_text)
         denial_info = get_denial_reason(denial_text)
     # Display extracted info section
-    st.markdown("#### 🧑‍⚕️ Extracted Patient & Denial Info")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Patient Name", patient_info.get("Patient Name") or "-")
-    col2.metric("Member ID", patient_info.get("Member ID") or "-")
-    col3.metric("Denial Reason", denial_info or "-")
+    #st.markdown("#### 🧑‍⚕️ Extracted Patient & Denial Info")
+    #col1, col2, col3 = st.columns(3)
+    #col1.metric("Patient Name", patient_info.get("Patient Name") or "-")
+    #col2.metric("Member ID", patient_info.get("Member ID") or "-")
+    #col3.metric("Denial Reason", denial_info or "-")
 
     # Denial reason classification table
     common_reasons = [
